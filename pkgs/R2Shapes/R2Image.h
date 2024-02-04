@@ -62,16 +62,20 @@ class R2Image {
   int WritePNGFile(const char *filename) const;
 
   // Buffer reading/writing
-  int ReadBuffer(char *buffer, size_t buffer_length);
-  int ReadPNGBuffer(char *buffer, size_t buffer_length);
+  int ReadBuffer(const char *buffer, size_t buffer_length);
+  int ReadPNGBuffer(const char *buffer, size_t buffer_length);
+  int ReadJPEGBuffer(const char *buffer, size_t buffer_length);
   int WriteBuffer(char **buffer, size_t *buffer_length) const;
   int WritePNGBuffer(char **buffer, size_t *buffer_length) const;
+  int WriteJPEGBuffer(char **buffer, size_t *buffer_length) const;
   
   // Stream reading/writing
   int ReadStream(FILE *fp);
   int ReadPNGStream(FILE *fp);
+  int ReadJPEGStream(FILE *fp);
   int WriteStream(FILE *fp) const;
   int WritePNGStream(FILE *fp) const;
+  int WriteJPEGStream(FILE *fp) const;
   
   // Capture functions
   void Capture(void);
@@ -192,7 +196,7 @@ Pixel(int x, int y) const
 
   
 inline int R2Image::
-ReadBuffer(char *buffer, size_t buffer_length)
+ReadBuffer(const char *buffer, size_t buffer_length)
 {
   // Read from PNG buffer
   return ReadPNGBuffer(buffer, buffer_length);

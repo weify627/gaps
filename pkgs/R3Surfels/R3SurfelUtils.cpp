@@ -305,7 +305,7 @@ CreateBlock(R3SurfelScene *scene,
 R3SurfelNode *
 CreateNode(R3SurfelScene *scene, R3SurfelPointSet *pointset, 
   R3SurfelNode *parent_node, const char *node_name, 
-  RNBoolean copy_surfels)
+  RNBoolean copy_surfels, RNBoolean release_copied_blocks)
 {
   // Initialize result
   R3SurfelNode *node = NULL;
@@ -336,7 +336,7 @@ CreateNode(R3SurfelScene *scene, R3SurfelPointSet *pointset,
     tree->InsertNode(node, parent_node);
 
     // Release block
-    tree->Database()->ReleaseBlock(block);
+    if (release_copied_blocks) tree->Database()->ReleaseBlock(block);
   }
   else {
 #if 0
@@ -393,7 +393,7 @@ R3SurfelNode *
 CreateNode(R3SurfelScene *scene, 
   R3SurfelNode *source_node, const R3SurfelConstraint *constraint,
   R3SurfelNode *parent_node, const char *node_name, 
-  RNBoolean copy_surfels)
+  RNBoolean copy_surfels, RNBoolean release_copied_blocks)
 {
   // Initialize result
   R3SurfelNode *node = NULL;
@@ -415,7 +415,8 @@ CreateNode(R3SurfelScene *scene,
     if (!pointset) return NULL;
     
     // Create node
-    node = CreateNode(scene, pointset, parent_node, node_name);
+    node = CreateNode(scene, pointset, parent_node, node_name,
+      copy_surfels, release_copied_blocks);
     
     // Delete point set
     delete pointset;
@@ -777,7 +778,7 @@ CreateObject(R3SurfelScene *scene,
   R3SurfelPointSet *pointset, 
   R3SurfelObject *parent_object, const char *object_name, 
   R3SurfelNode *parent_node, const char *node_name, 
-  RNBoolean copy_surfels)
+  RNBoolean copy_surfels, RNBoolean release_copied_blocks)
 {
   // Get parent object
   if (!parent_object) parent_object = scene->RootObject();
@@ -791,7 +792,8 @@ CreateObject(R3SurfelScene *scene,
   // Check if should create copy of surfels for new node
   if (copy_surfels) {
     // Create node
-    R3SurfelNode *node = CreateNode(scene, pointset, parent_node, node_name, copy_surfels);
+    R3SurfelNode *node = CreateNode(scene, pointset,
+      parent_node, node_name, copy_surfels, release_copied_blocks);
     if (!node) { delete object; return NULL; }
     
     // Insert node into object
@@ -830,7 +832,7 @@ CreateObject(R3SurfelScene *scene,
   R3SurfelNode *source_node, const R3SurfelConstraint *constraint,
   R3SurfelObject *parent_object, const char *object_name, 
   R3SurfelNode *parent_node, const char *node_name, 
-  RNBoolean copy_surfels)
+  RNBoolean copy_surfels, RNBoolean release_copied_blocks)
 {
   // Get tree
   R3SurfelTree *tree = scene->Tree();
@@ -852,7 +854,8 @@ CreateObject(R3SurfelScene *scene,
   // Check if should copy surfels
   if (copy_surfels) {
     // Create node
-    R3SurfelNode *node = CreateNode(scene, source_node, constraint, parent_node, node_name, copy_surfels);
+    R3SurfelNode *node = CreateNode(scene, source_node, constraint,
+      parent_node, node_name, copy_surfels, release_copied_blocks);
     if (!node) return NULL;
     
     // Insert node into object
@@ -860,10 +863,6 @@ CreateObject(R3SurfelScene *scene,
     
   }
   else {
-    // Get surfel tree
-    R3SurfelTree *tree = scene->Tree();
-    if (!tree) return NULL;
-
     // Split leaf nodes
     RNArray<R3SurfelNode *> nodes;
     tree->SplitLeafNodes(source_node, *constraint, &nodes);
@@ -891,7 +890,7 @@ int
 CreateObjects(R3SurfelScene *scene,
   const std::vector<int>& instance_identifiers,
   R3SurfelObject *parent_object, R3SurfelNode *parent_node,
-  RNBoolean copy_surfels, RNBoolean release_blocks)
+  RNBoolean copy_surfels, RNBoolean release_copied_blocks)
 {
   // Get convenient variables
   if (!scene) return 0;
@@ -905,70 +904,77 @@ CreateObjects(R3SurfelScene *scene,
   if (!parent_node) return 0;
   if (instance_identifiers.empty()) return 0;
 
-  // Create pointset for each unique identifier
-  std::map<int, R3SurfelPointSet> pointsets;
-  for (int i = 0; i < tree->NNodes(); i++) {
-    R3SurfelNode *node = tree->Node(i);
-    if (node->NParts() > 0) continue;
-    for (int j = 0; j < node->NBlocks(); j++) {
-      R3SurfelBlock *block = node->Block(j);
-      if (!database->ReadBlock(block)) continue;
-      for (int k = 0; k < block->NSurfels(); k++) {
-        const R3Surfel *surfel = block->Surfel(k);
+  // Create list of object identifiers
+  std::vector<int> object_identifiers;
+  std::map<int, int> instance_identifier_map;
+  for (unsigned int i = 0; i < instance_identifiers.size(); i++) {
+    int instance_identifier = instance_identifiers[i];
+    std::map<int, int>::iterator it = instance_identifier_map.find(instance_identifier);
+    if (it != instance_identifier_map.end()) continue;
+    instance_identifier_map.insert(std::pair<int, int>(instance_identifier, 0));
+    object_identifiers.push_back(instance_identifier);
+  }
 
-        // Get/check surfel identifier
-        int surfel_identifier = surfel->Identifier();
-        if (surfel_identifier < 0) continue;
-        if (surfel_identifier >= (int) instance_identifiers.size()) continue;
+  // Check list of object identifiers
+  if (object_identifiers.empty()) return 0;
+  
+  // Read all blocks
+  scene->ReadBlocks();
+  
+  // Create object for each identifier
+  for (unsigned int i = 0; i < object_identifiers.size(); i++) {
+    int object_identifier = object_identifiers[i];
 
-        // Get/check instance identifier
-        int instance_identifier = instance_identifiers[surfel_identifier];
-        if (instance_identifier < 0) continue;
+    // Create pointset
+    R3SurfelPointSet pointset;
+    for (int i = 0; i < tree->NNodes(); i++) {
+      R3SurfelNode *node = tree->Node(i);
+      if (node->NParts() > 0) continue;
+      for (int j = 0; j < node->NBlocks(); j++) {
+        R3SurfelBlock *block = node->Block(j);
+        for (int k = 0; k < block->NSurfels(); k++) {
+          const R3Surfel *surfel = block->Surfel(k);
 
-        // Get/create pointset
-        std::map<int, R3SurfelPointSet>::iterator it = pointsets.find(instance_identifier);
-        if (it == pointsets.end()) {
-          pointsets.insert(std::pair<int, R3SurfelPointSet>(instance_identifier, R3SurfelPointSet()));
-          it = pointsets.find(instance_identifier);
-        }
+          // Get/check surfel identifier
+          int surfel_identifier = surfel->Identifier();
+          if (surfel_identifier < 0) continue;
+          if (surfel_identifier >= (int) instance_identifiers.size()) continue;
 
-        // Insert point into pointset
-        if (it != pointsets.end()) {
-          R3SurfelPointSet& pointset = it->second;
+          // Get/check instance identifier
+          int instance_identifier = instance_identifiers[surfel_identifier];
+          if (instance_identifier < 0) continue;
+          if (instance_identifier != object_identifier) continue;
+
+          // Add point to pointset
           R3SurfelPoint point(block, surfel);
           pointset.InsertPoint(point);
         }
       }
-      database->ReleaseBlock(block);
     }
-  }
-
-  // Create object for each pointset
-  std::map<int, R3SurfelPointSet>::iterator it;
-  for (it = pointsets.begin(); it != pointsets.end(); it++) {
-    int instance_identifier = it->first;
-    R3SurfelPointSet& pointset = it->second;
+    
+    // Check pointset
     if (pointset.NPoints() == 0) continue;
 
     // Create object name
     char object_name[1024];
-    sprintf(object_name, "OBJECT#%d", instance_identifier);
+    sprintf(object_name, "OBJECT#%d", object_identifier);
 
     // Create object
     R3SurfelObject *object = CreateObject(scene, &pointset,
-      parent_object, object_name, parent_node, object_name, copy_surfels);
+      parent_object, object_name, parent_node, object_name,
+      copy_surfels, release_copied_blocks);
     if (!object) continue;
     
     // Set object identifier
-    object->SetIdentifier(instance_identifier);
+    object->SetIdentifier(object_identifier);
 
     // Create PCA object property
     R3SurfelObjectProperty *pca = new R3SurfelObjectProperty(R3_SURFEL_OBJECT_PCA_PROPERTY, object);
     scene->InsertObjectProperty(pca);
-
-    // Release block
-    if (release_blocks) object->ReleaseBlocks();
   }
+
+  // Release all blocks 
+  scene->ReleaseBlocks();
 
   // Return success
   return 1;
@@ -1864,13 +1870,17 @@ MaskToSelectedConnectedComponent(R3Grid *grid, RNScalar isolevel,
           grid->IndicesToIndex(center_i, center_j, center_k, center_index);
           closest_component = component_membership[center_index];
           if (min_component_size > 0) {
-            if (component_sizes[closest_component] < min_component_size) {
-              closest_component = -1;
+            if (closest_component >= 0) { // to silence compiler
+              if (component_sizes[closest_component] < min_component_size) {
+                closest_component = -1;
+              }
             }
           }
           if (max_component_size > 0) {
-            if (component_sizes[closest_component] > max_component_size) {
-              closest_component = -1;
+            if (closest_component >= 0) { // to silence compiler
+              if (component_sizes[closest_component] > max_component_size) {
+                closest_component = -1;
+              }
             }
           }
         }
@@ -3171,7 +3181,7 @@ CreatePlanarGrids(R3SurfelScene *scene,
 RNArray<R3SurfelObject *> *
 CreatePlanarObjects(R3SurfelScene *scene, 
   R3SurfelNode *source_node, const R3SurfelConstraint *constraint,
-  R3SurfelObject *parent_object, R3SurfelNode *parent_node, RNBoolean copy_surfels,
+  R3SurfelObject *parent_object, R3SurfelNode *parent_node,
   int max_neighbors, RNLength max_neighbor_distance, 
   RNLength max_offplane_distance, RNAngle max_normal_angle,
   RNArea min_area, RNScalar min_density, int min_points,
@@ -3239,7 +3249,7 @@ CreatePlanarObjects(R3SurfelScene *scene,
         R3SurfelPlanarGridConstraint planar_grid_constraint(grid, max_offplane_distance);
         multi_constraint.InsertConstraint(&planar_grid_constraint);
         R3SurfelObject *object = CreateObject(scene, source_node, &multi_constraint, 
-          parent_object, object_name, parent_node, object_name, copy_surfels);
+          parent_object, object_name, parent_node, object_name);
         multi_constraint.RemoveConstraint(&planar_grid_constraint);
         printf("  %6d/%6d %6d/%6d %6d/%6d : %9.3g %9.3g\n", j, nychunks, i, nxchunks, k, chunk_grids->NEntries(), grid->L1Norm(), grid->Area());
         if (object) objects->Insert(object);

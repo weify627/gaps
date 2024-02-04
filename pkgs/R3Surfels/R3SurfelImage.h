@@ -83,6 +83,7 @@ public:
   R3Vector Towards(void) const;
   const R3Vector& Up(void) const;
   const R3Vector& Right(void) const;
+  R3Camera Camera(RNLength neardist = RN_EPSILON, RNLength fardist = RN_INFINITY) const;
   R3Frustum Frustum(RNLength neardist = RN_EPSILON, RNLength fardist = RN_INFINITY) const;
   R4Matrix CameraToWorld(void) const;
   R4Matrix Extrinsics(void) const;
@@ -127,6 +128,9 @@ public:
   //// PROPERTY MANIPULATION FUNCTIONS ////
   /////////////////////////////////////////
 
+  // Copy assignment operator
+  R3SurfelImage& operator=(const R3SurfelImage& image);
+  
   // Channel manipulation functions
   virtual void SetChannel(int channel_index, const R2Grid& channel);
   virtual void SetRedChannel(const R2Grid& channel);
@@ -201,7 +205,7 @@ public:
   ///////////////////////////
 
   // Draw function
-  virtual void Draw(RNFlags flags = R3_SURFEL_DEFAULT_DRAW_FLAGS) const;
+  virtual void Draw(RNFlags flags = R3_SURFEL_DEFAULT_DRAW_FLAGS, RNScalar scale = 1) const;
 
   // Print function
   virtual void Print(FILE *fp = NULL, const char *prefix = NULL, const char *suffix = NULL) const;
@@ -240,7 +244,7 @@ protected:
   RNLength xfocal, yfocal;
   int distortion_type;
   RNScalar radial_distortion[3];
-  RNScalar tangential_distortion[3];
+  RNScalar tangential_distortion[2];
   R3CoordSystem rolling_shutter_poses[2];
   RNScalar rolling_shutter_timestamps[2];
   char *name;
@@ -664,6 +668,16 @@ Right(void) const
 
 
 
+inline R3Camera R3SurfelImage::
+Camera(RNLength neardist, RNLength fardist) const
+{
+  // Return camera
+  return R3Camera(Viewpoint(), Towards(), Up(),
+    XFOV(), YFOV(), neardist, fardist);
+}
+
+
+  
 inline R3Frustum R3SurfelImage::
 Frustum(RNLength neardist, RNLength fardist) const
 {

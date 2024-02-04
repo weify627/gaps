@@ -9,6 +9,7 @@
 namespace gaps {}
 using namespace gaps;
 #include "R3Surfels/R3Surfels.h"
+#include "RGBD/RGBD.h"
 
 
 
@@ -739,6 +740,66 @@ LoadSurfelsFromMesh(R3SurfelScene *scene, const char *mesh_filename,
 
 
 
+static int
+LoadImagesFromConfiguration(R3SurfelScene *scene, const char *configuration_filename)
+{
+  // Start statistics
+  RNTime start_time;
+  start_time.Read();
+
+  // Read configuration file
+  RGBDConfiguration configuration;
+  if (!configuration.ReadFile(configuration_filename)) return 0;
+
+  // Create images
+  for (int i = 0; i < configuration.NImages(); i++) {
+    RGBDImage *rgbd_image = configuration.Image(i);
+
+    // Get name
+    char name[1025];
+    if (rgbd_image->Name()) strncpy(name, rgbd_image->Name(), 1024);
+    else sprintf(name, "Image_%d\n", i);
+
+    // Get stuff from rgbd image
+    R3Point viewpoint = rgbd_image->WorldViewpoint();
+    R3Vector towards = rgbd_image->WorldTowards();
+    R3Vector up = rgbd_image->WorldUp();
+    int width = rgbd_image->NPixels(RN_X);
+    int height = rgbd_image->NPixels(RN_Y);
+    R3Matrix intrinsics = rgbd_image->Intrinsics();
+    double xfocal = intrinsics[0][0];
+    double yfocal = intrinsics[1][1];
+    double xcenter = intrinsics[0][2];
+    double ycenter = intrinsics[1][2];
+
+    // Create sfl image
+    R3SurfelImage *sfl_image = new R3SurfelImage();
+    sfl_image->SetViewpoint(viewpoint);
+    sfl_image->SetOrientation(towards, up);
+    sfl_image->SetImageDimensions(width, height);
+    sfl_image->SetImageCenter(R2Point(xcenter, ycenter));
+    sfl_image->SetXFocal(xfocal);
+    sfl_image->SetYFocal(yfocal);
+    sfl_image->SetName(name);
+
+    // Insert sfl image into scene
+    scene->InsertImage(sfl_image);
+  }
+  
+  // Print statistics
+  if (print_verbose) {
+    printf("Loaded images from %s ...\n", configuration_filename);
+    printf("  Time = %.2f seconds\n", start_time.Elapsed());
+    printf("  # Images = %d\n", configuration.NImages());
+    fflush(stdout);
+  }
+
+  // Return success
+  return 1;
+}
+
+
+  
 static int
 LoadLabelList(R3SurfelScene *scene, const char *list_filename, const char *root_name)
 {
@@ -2010,8 +2071,6 @@ CreateLabeledObjectInstances(R3SurfelScene *scene, const char *csv_filename,
     if (surfel_identifier < 0) continue;
     if (surfel_identifier > max_surfel_identifier) continue;
     // if (label_identifier == 255) label_identifier = -1; // TEMPORARY
-    if (instance_identifier == 65535) instance_identifier = -1; // TEMPORARY
-    if (instance_identifier != -1) instance_identifier += 65536; // TEMPORARY
     label_identifiers[surfel_identifier] = label_identifier;
     instance_identifiers[surfel_identifier] = instance_identifier;
   }
@@ -2019,7 +2078,10 @@ CreateLabeledObjectInstances(R3SurfelScene *scene, const char *csv_filename,
   // Close csv file
   fclose(fp);
 
-  // Create object instances
+  // Remove current objects
+  RemoveObjects(scene);
+
+  // Create new objects
   if (!CreateObjects(scene, instance_identifiers,
     parent_object, parent_node, FALSE)) return 0;
 
@@ -2156,7 +2218,7 @@ CreatePlanarObjects(R3SurfelScene *scene,
 
   // Create planar objects 
   RNArray<R3SurfelObject *> *objects = CreatePlanarObjects(scene, 
-    source_node, NULL, parent_object, parent_node,                                                   
+    source_node, NULL, parent_object, parent_node,
     max_neighbors, max_neighbor_distance, 
     max_offplane_distance, max_normal_angle,
     min_area, min_density, min_points, 
@@ -2321,6 +2383,27 @@ ParseConstraint(int& argc, char **& argv)
     argc--; argv++; double z2 = atof(*argv);
     R3Box box(x1, y1, z1, x2, y2, z2);
     R3SurfelBoxConstraint *constraint = new R3SurfelBoxConstraint(box);
+    return constraint;
+  }
+  else if (!strcmp(constraint_type, "OrientedBoundingBox")) {
+    // Read bounding box coordinates
+    argc--; argv++; double cx = atof(*argv);
+    argc--; argv++; double cy = atof(*argv);
+    argc--; argv++; double cz = atof(*argv);
+    argc--; argv++; double ax1 = atof(*argv);
+    argc--; argv++; double ay1 = atof(*argv);
+    argc--; argv++; double az1 = atof(*argv);
+    argc--; argv++; double ax2 = atof(*argv);
+    argc--; argv++; double ay2 = atof(*argv);
+    argc--; argv++; double az2 = atof(*argv);
+    argc--; argv++; double r1 = atof(*argv);
+    argc--; argv++; double r2 = atof(*argv);
+    argc--; argv++; double r3 = atof(*argv);
+    R3Point center(cx, cy, cz);
+    R3Vector axis1(ax1, ay1, az1);
+    R3Vector axis2(ax2, ay2, az2);
+    R3OrientedBox obb(center, axis1, axis2, r1, r2, r3);
+    R3SurfelOrientedBoxConstraint *constraint = new R3SurfelOrientedBoxConstraint(obb);
     return constraint;
   }
   else if (!strcmp(constraint_type, "OverheadGrid")) {
@@ -2500,6 +2583,11 @@ int main(int argc, char **argv)
       if (!LoadSurfelsFromMesh(scene, mesh_filename,
         parent_object_name, parent_node_name,
         surfel_spacing)) exit(-1);
+      noperations++;
+    }
+    else if (!strcmp(*argv, "-load_images")) { 
+      argc--; argv++; const char *configuration_filename = *argv; 
+      if (!LoadImagesFromConfiguration(scene, configuration_filename)) exit(-1);
       noperations++;
     }
     else if (!strcmp(*argv, "-load_scene")) { 
