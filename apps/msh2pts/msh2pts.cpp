@@ -48,6 +48,7 @@ static int selection_method = RANDOM_SURFACE_POINTS;
 static int min_points = -1;
 static int max_points = -1;
 static int num_points = -1;
+// FLT_MAX = 340282346638528859811704183484516925440.00
 static R3Box bbox(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 static double min_spacing = -1;
 static double min_normalized_spacing = -1;
@@ -65,7 +66,7 @@ static RNBoolean print_debug = FALSE;
 ////////////////////////////////////////////////////////////////////////
 // Type definitions
 ////////////////////////////////////////////////////////////////////////
-
+/*
 struct Point {
   Point(void) 
     : vertex(NULL), face(NULL), position(0,0,0), normal(0,0,0), sdf(0) {};
@@ -73,11 +74,31 @@ struct Point {
     : vertex(NULL), face(NULL), position(position), normal(normal), sdf(0) {};
   Point(R3Mesh *mesh, R3MeshVertex *vertex)
     : vertex(vertex), face(NULL), position(mesh->VertexPosition(vertex)), normal(mesh->VertexNormal(vertex)), sdf(0) {};
+  Point(const R3Point& position, const R3Vector& normal, const RNRgb& color) 
+    : vertex(NULL), face(NULL), position(position), normal(normal), sdf(0), color(color) {};
   R3MeshVertex *vertex;
   R3MeshFace *face;
   R3Point position;
   R3Vector normal;
   RNScalar sdf;
+  RNRgb color;
+};
+*/
+struct Point {
+  Point(void) 
+    : vertex(NULL), face(NULL), position(0,0,0), normal(0,0,0), sdf(0), color(0,0,0) {};
+  Point(const R3Point& position, const R3Vector& normal) 
+    : vertex(NULL), face(NULL), position(position), normal(normal), sdf(0), color(0,0,0) {};
+  Point(R3Mesh *mesh, R3MeshVertex *vertex)
+    : vertex(vertex), face(NULL), position(mesh->VertexPosition(vertex)), normal(mesh->VertexNormal(vertex)), sdf(0), color(0,0,0) {};
+  Point(const R3Point& position, const R3Vector& normal, const RNRgb& color) 
+    : vertex(NULL), face(NULL), position(position), normal(normal), sdf(0), color(color) {};
+  R3MeshVertex *vertex;
+  R3MeshFace *face;
+  R3Point position;
+  R3Vector normal;
+  RNScalar sdf;
+  RNRgb color;
 };
 
 
@@ -305,12 +326,20 @@ WritePoints(R3Mesh *mesh, const RNArray<Point *>& points, const char *filename)
 
     // Write points
     float values[4];
+    //float values[7];
     for (int i = 0; i < points.NEntries(); i++) {
       Point *point = points.Kth(i);
       values[0] = point->position.X();
       values[1] = point->position.Y();
       values[2] = point->position.Z();
       values[3] = point->sdf;
+      //values[4] = point->normal.X();
+      //values[5] = point->normal.Y();
+      //values[6] = point->normal.Z();
+      //if (fwrite(values, sizeof(float), 7, fp) != (unsigned int) 7) {
+        //RNFail("Unable to write point to output file %s\n", filename);
+        //return 0;
+      //}
       if (fwrite(values, sizeof(float), 4, fp) != (unsigned int) 4) {
         RNFail("Unable to write point to output file %s\n", filename);
         return 0;
@@ -322,7 +351,8 @@ WritePoints(R3Mesh *mesh, const RNArray<Point *>& points, const char *filename)
     R3Mesh mesh;
     for (int i = 0; i < points.NEntries(); i++) {
       Point *point = points[i];
-      mesh.CreateVertex(point->position, point->normal);
+      //mesh.CreateVertex(point->position, point->normal);
+      mesh.CreateVertex(point->position, point->normal, point->color);
     }
 
     // Write mesh file
@@ -532,6 +562,10 @@ SelectRandomSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
     const R3Vector& n0 = mesh->VertexNormal(v0);
     const R3Vector& n1 = mesh->VertexNormal(v1);
     const R3Vector& n2 = mesh->VertexNormal(v2);
+    // fwei: get color
+    const RNRgb& c0 = mesh->VertexColor(v0);
+    const RNRgb& c1 = mesh->VertexColor(v1);
+    const RNRgb& c2 = mesh->VertexColor(v2);
 
     // Determine number of points for face 
     RNScalar ideal_face_npoints = npoints * mesh->FaceValue(face) / total_value;
@@ -540,6 +574,8 @@ SelectRandomSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
     if (remainder > RNRandomScalar()) face_npoints++;
 
     // Generate random points in face
+    R3Vector normal0(0,0,0);
+    RNRgb c(0,0,0);
     for (int j = 0; j < face_npoints; j++) {
       RNScalar r1 = sqrt(RNRandomScalar());
       RNScalar r2 = RNRandomScalar();
@@ -548,7 +584,17 @@ SelectRandomSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
       RNScalar t2 = r1 * r2;
       R3Point position = t0*p0 + t1*p1 + t2*p2;
       R3Vector normal = t0*n0 + t1*n1 + t2*n2; normal.Normalize();
-      Point *point = new Point(position, normal);
+      RNRgb color = t0*c0 + t1*c1 + t2*c2;
+      //Point *point = new Point(position, normal);
+      // fwei
+      //if (normal == normal0)
+      if (color ==c)
+          continue;
+      //if (c == color){
+          //printf(" %g %g %g %g %g %g %g %g %g\n", c0.R(), c0.G(), c0.B(), c1.R(), c1.G(), c1.B(), c2.R(), c2.G(), c2.B());
+          //printf(" %g %g %g %g %g %g %g %g %g %g %g %g\n", normal.X(), normal.Y(), normal.Z(), n0.X(), n0.Y(), n0.Z(), n1.X(), n1.Y(), n1.Z(), n2.X(), n2.Y(), n2.Z());
+      //}
+      Point *point = new Point(position, normal, color);
       points->Insert(point);
     }
   }
@@ -1363,6 +1409,12 @@ SelectVisibleSurfacePoints(R3Mesh *mesh, int npoints, double min_spacing)
 static RNArray<Point *> *
 SelectNearSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
 {
+  // Get bounding box
+  if (bbox.IsEmpty()) {
+    bbox = mesh->BBox();
+    bbox.Inflate(1.1);
+  }
+
   // Allocate array of points
   RNArray<Point *> *points = new RNArray<Point *>();
   if (!points) {
@@ -1407,39 +1459,94 @@ SelectNearSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
       R3MeshIntersection intersectionA;
       R3Ray rayA(position, normal);
       kdtree.FindIntersection(rayA, intersectionA, RN_EPSILON, max_distance);
+      RNScalar surface_offset = 0;
+      RNScalar offset_const = 0.03;
+      RNScalar cos_angle_a = 0;
       if (intersectionA.type == R3_MESH_NULL_TYPE) {
         intersectionA.t = max_distance;
+      }
+      else {
+      // Check if the normal of the intersected face is the same direction as
+      // normal (meaning the intersected surface is single-surface / not watertight).
+      // If so, we will set an offset from the intersected face -- this is an
+      // inaccurate estimation of the missing "inside volume".
+        cos_angle_a = mesh->FaceNormal(intersectionA.face).Dot(normal);
+        if (cos_angle_a > 0) surface_offset = offset_const;
       }
 
       // Find ray intersection on inside
       R3MeshIntersection intersectionB;
       R3Ray rayB(position, -normal);
       kdtree.FindIntersection(rayB, intersectionB, RN_EPSILON, max_distance);
+      bool sample_inside = true;
       if (intersectionB.type == R3_MESH_NULL_TYPE) {
         intersectionB.t = max_distance;
       }
+      else {
+      // Check if the normal of the intersected face is the same direction as
+      // normal (meaning the current surface is single-surface / not watertight).
+      // If so, we will not sample inside for the current point.
+        RNScalar cos_angle = mesh->FaceNormal(intersectionB.face).Dot(normal);
+        if (cos_angle > 0) sample_inside = false;
+      }
+
 
       // Find lesser of two ray intersection distances
-      RNScalar t = intersectionA.t;
-      if (intersectionB.t < t) t = intersectionB.t;
+      RNScalar t = intersectionA.t;  // - surface_offset;
+         //printf("  t = %.5f %.5f %.5f\n", t, intersectionA.t, t);
+      if (intersectionB.t < (t-offset_const)) {
+          t = intersectionB.t;
+          surface_offset *= 0;
+      }
       if (t == FLT_MAX) continue;  // should not happen for watertight mesh or if max_distance is set
+
+      if (t == (FLT_MAX - 0.03))
+        fprintf(stdout, "WRONG!!! ...\n");
 
       // Adjust t based on max distance
       if (t > max_distance) t = max_distance;
 
       // Adjust t to bias towards smaller values
       t *= pow(RNRandomScalar(), near_surface_bias_exponent);
+      //if (t > surface_offset)
+          //t -= surface_offset;
+      RNScalar min_t = intersectionA.t - t; //surface_offset - t; //, t);
+      if (min_t > surface_offset)
+          min_t -= surface_offset;
 
       // Create point on outside
       R3Point positionA = position + t * normal;
+      //R3Vector box_min(4.28, 0.73, 0.083);
+      //R3Vector box_max(4.38, 0.84, 0.09);
+      
       if (bbox.IsEmpty() || R3Contains(bbox, positionA)) {
         // Compute sdf
         RNScalar sdfA = 1;
+        R3MeshIntersection closest;
+        kdtree.FindClosest(positionA, closest, 0, max_distance);
         if (!binary_sdf) {
           R3MeshIntersection closest;
           kdtree.FindClosest(positionA, closest, 0, max_distance);
           sdfA = (closest.type != R3_MESH_NULL_TYPE) ? closest.t : t;
+          if ((cos_angle_a > 0) && sdfA > min_t){
+              //if (min_t > t)
+                //printf("  sdfa = %.2f %.2f %.2fseconds\n", sdfA, t, min_t);
+              sdfA = min_t;
+
+          }
+
         }
+        //if ((positionA.X() > box_min.X()) && 
+                //false &&
+              //(positionA.X() < box_max.X()) && 
+              //(positionA.Y() > box_min.Y()) && 
+              //(positionA.Y() < box_max.Y()) && 
+              //(positionA.Z() > box_min.Z()) && 
+              //(positionA.Z() < box_max.Z())){
+                //printf("  positionA = %.3f %.3f %.3f\n", positionA.X(), positionA.Y(), positionA.Z());
+                //printf("  normalA = %.3f %.3f %.3f\n", normal.X(), normal.Y(), normal.Z());
+                //printf("  sdfA = %.5f %.5f %.5f\n", sdfA, closest.t, t);
+        //}
 
         // Create point
         Point *pointA = new Point();
@@ -1450,25 +1557,42 @@ SelectNearSurfacePoints(R3Mesh *mesh, R3MeshProperty *property, int npoints)
         points->Insert(pointA);
       }
 
+      if (!sample_inside)
+          t *= pow(RNRandomScalar(), 1);  //, near_surface_bias_exponent);
       // Create point on inside
       R3Point positionB = position - t * normal;
       if (bbox.IsEmpty() || R3Contains(bbox, positionB)) {
         // Compute sdf
         RNScalar sdfB = -1;
+        R3MeshIntersection closest;
         if (!binary_sdf) {
-          R3MeshIntersection closest;
+          //R3MeshIntersection closest;
           kdtree.FindClosest(positionB, closest, 0, max_distance);
           sdfB = (closest.type != R3_MESH_NULL_TYPE) ? -closest.t : -t;
         }
+        //if ((positionB.X() > box_min.X()) && 
+                //false &&
+              //(positionB.X() < box_max.X()) && 
+              //(positionB.Y() > box_min.Y()) && 
+              //(positionB.Y() < box_max.Y()) && 
+              //(positionB.Z() > box_min.Z()) && 
+              //(positionB.Z() < box_max.Z())){
+                //printf("  positionB = %.3f %.3f %.3f\n", positionB.X(), positionB.Y(), positionB.Z());
+                //printf("  normalB = %.3f %.3f %.3f\n", normal.X(), normal.Y(), normal.Z());
+                //printf("  sdfB = %.5f %.5f %.5f\n", sdfB, closest.t, t);
+        //}
 
-        R3MeshIntersection closest;
         kdtree.FindClosest(positionB, closest, 0, max_distance);
         Point *pointB = new Point();
         pointB->face = face;
         pointB->position = positionB;
         pointB->normal = normal;
         pointB->sdf = sdfB;
-        points->Insert(pointB);
+        if (sample_inside || (sdfB > -offset_const)) ///2))
+            points->Insert(pointB);
+        //else
+            //printf("  sdfB = %.5f %.5f %.5f\n", sdfB, closest.t, t);
+
       }
     }
   }
@@ -1689,12 +1813,20 @@ SelectPoints(R3Mesh *mesh, R3MeshProperty *property, int selection_method)
 
   // Check if too few points
   if (min_points > 0) {
+    //R3Vector normal0(0,0,0);
+    RNRgb c(0,0,0);
     while (points->NEntries() < min_points) {
       int face_index = (int) (RNRandomScalar() * mesh->NFaces());
       R3MeshFace *face = mesh->Face(face_index);
       R3Point position = mesh->RandomPointOnFace(face);
       const R3Vector& normal = mesh->FaceNormal(face);
-      Point *point = new Point(position, normal);
+      // fwei
+      const RNRgb & color = mesh->FaceColor(face);
+      //Point *point = new Point(position, normal);
+      //if (normal0 == normal)
+      if (color == c)
+          continue;
+      Point *point = new Point(position, normal, color);
       points->Insert(point);
     }
   }

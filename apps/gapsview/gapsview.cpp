@@ -135,6 +135,12 @@ static RNScalar depth_exponent = 0.5;
 static RNScalar grid_thresholds[max_models] = { 0 };
 static RNInterval grid_ranges[max_models] = { RNInterval(0,0) };
 static int grid_slice_coords[3] = { 0, 0, 0 };
+static RNScalar grid_step = 0.025;
+//RNScalar grid_step = 0.002;
+
+// Point display variables
+static int point_size = 1;
+
 
 // GLUT state variables 
 static int GLUTwindow = 0;
@@ -677,10 +683,10 @@ ReadFiles(void)
     if (!grid) return 0;
     grids.Insert(grid);
     grid_ranges[i] = grid->Range();
-    grid_thresholds[i] = grid->Mean() + 3 * grid->StandardDeviation();
-    if (grid_thresholds[i] > grid_ranges[i].Max() - RN_EPSILON) {
-      grid_thresholds[i] = grid_ranges[i].Max() - RN_EPSILON;
-    }
+    //grid_thresholds[i] = grid->Mean() + 3 * grid->StandardDeviation();
+    //if (grid_thresholds[i] > grid_ranges[i].Max() - RN_EPSILON) {
+      //grid_thresholds[i] = grid_ranges[i].Max() - RN_EPSILON;
+    //}
   }
 
   // Read sfl scenes
@@ -1259,10 +1265,15 @@ DrawPointSet(R3PointSet *pointset,
         LoadColorIndex(model_index, POINTSET_POINT_ELEMENT_TYPE, i);
       else if (color_scheme == RGB_COLOR_SCHEME)
         RNLoadRgb(-10*value, 0.0, 10*value);
+        // fw: binary color
+        //if (value < 0)
+            //RNLoadRgb(1, 0.0, 0);
+        //else
+            //RNLoadRgb(0, 0.0, 1);
       R3LoadPoint(position);
     }
     RNGrfxEnd();
-    glPointSize(1);
+    glPointSize(point_size);
   }
   
   // Draw normals
@@ -2076,13 +2087,13 @@ GLUTSpecial(int key, int x, int y)
   // Process keyboard button event 
   switch (key) {
   case GLUT_KEY_DOWN:
-    grid_thresholds[selected_model_index] -= 0.025 * grid_ranges[selected_model_index].Diameter();
+    grid_thresholds[selected_model_index] -= grid_step * grid_ranges[selected_model_index].Diameter();
     if (grid_thresholds[selected_model_index] < grid_ranges[selected_model_index].Min() + 1E-20) 
       grid_thresholds[selected_model_index] = grid_ranges[selected_model_index].Min() + 1E-20;
     break;
 
   case GLUT_KEY_UP:
-    grid_thresholds[selected_model_index] += 0.025 * grid_ranges[selected_model_index].Diameter();
+    grid_thresholds[selected_model_index] += grid_step * grid_ranges[selected_model_index].Diameter();
     if (grid_thresholds[selected_model_index] > grid_ranges[selected_model_index].Max() - 1E-20)
       grid_thresholds[selected_model_index] = grid_ranges[selected_model_index].Max() - 1E-20;
     break;
@@ -2532,6 +2543,12 @@ ParseArgs(int argc, char **argv)
         argc--; argv++; background_color[0] = atof(*argv); 
         argc--; argv++; background_color[1] = atof(*argv); 
         argc--; argv++; background_color[2] = atof(*argv); 
+      }
+      else if (!strcmp(*argv, "-grid_step")) {
+        argc--; argv++; grid_step = atof(*argv);
+      }
+      else if (!strcmp(*argv, "-point_size")) {
+        argc--; argv++; point_size = atof(*argv);
       }
       else { 
         RNFail("Invalid program argument: %s", *argv); 
